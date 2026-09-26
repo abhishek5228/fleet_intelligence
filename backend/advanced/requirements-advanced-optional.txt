@@ -1,0 +1,26 @@
+# OPTIONAL extras — install these ONE AT A TIME, only when you're ready to
+# use that specific feature. Do NOT add this whole file to Render's build
+# command — install each line separately (or in small groups) so a conflict
+# in one package never blocks your entire deploy.
+#
+# Each of these is optional: hybrid_search.py, self_rag.py, and
+# observability.py all check for these at runtime and gracefully fall back
+# (with a warning log) if the package isn't installed.
+
+# --- Better rerank quality for Feature 1 (dense embeddings + local BGE reranker) ---
+# Heavy (~2GB with torch) — only add if Render's plan has enough build memory.
+# sentence-transformers
+
+# --- Cohere Rerank for Feature 1 (hosted, lighter than sentence-transformers) ---
+# Needs COHERE_API_KEY set as an env var on Render.
+# cohere
+
+# --- LangSmith tracing for Feature 4 ---
+# Needs LANGCHAIN_API_KEY + LANGCHAIN_TRACING_V2=true set as env vars.
+# langsmith
+
+# --- OpenTelemetry tracing for Feature 4 (Jaeger/Arize Phoenix/Grafana Tempo) ---
+# Needs OTEL_EXPORTER_OTLP_ENDPOINT set as an env var.
+# opentelemetry-api
+# opentelemetry-sdk
+# opentelemetry-exporter-otlp-proto-http

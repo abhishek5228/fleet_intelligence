@@ -1,0 +1,24 @@
+# NEW FILE — CORE additional dependencies for the advanced features.
+# Your existing backend/requirements.txt is untouched.
+# Install with: pip install -r backend/advanced/requirements-advanced.txt
+#
+# Kept deliberately LOOSE (no strict == pins) so pip's resolver never hits a
+# ResolutionImpossible conflict on Render's build. Heavy/optional packages
+# (sentence-transformers, cohere, langsmith, opentelemetry) are in
+# requirements-advanced-optional.txt — install those separately, one at a
+# time, ONLY if you actually want that specific feature. Every module is
+# written to work fine without them (it just logs a warning and falls back).
+
+# --- Feature 1: Hybrid Search (BM25 half — always works, no heavy deps) ---
+rank-bm25
+numpy
+
+# --- Feature 2: Multi-Agent Architecture (LangGraph) ---
+langgraph
+langchain-core
+
+# --- Feature 3: Self-RAG / CRAG ---
+# (uses `requests`, already in your main requirements.txt — nothing new needed)
+
+# --- Feature 5: Multi-Modal ---
+# (uses `requests`, already in your main requirements.txt — nothing new needed)
