@@ -71,6 +71,26 @@ Everything above happens through **one Meta WhatsApp Business number** — the "
 
 ---
 
+## 📊 Pilot metrics — real numbers, not marketing claims
+
+Rather than quote an impressive-sounding "cut dispatch time by X%" figure with nothing behind it, the system **instruments and measures itself**: every incident's clock starts the moment it's triaged, and stops the moment a mechanic/part is genuinely approved & dispatched (whether through the direct manager Approve, or after a vendor price comparison). This is real, live-collected data — pull it any time from `GET /api/metrics/summary`:
+
+```json
+{
+  "total_incidents_triaged": 14,
+  "total_incidents_dispatched": 11,
+  "avg_breakdown_to_dispatch": "6.2 min",
+  "median_breakdown_to_dispatch": "4.8 min",
+  "fastest_dispatch": "1.4 min",
+  "slowest_dispatch": "19.1 min",
+  "dispatched_via_breakdown": { "vendor_price_comparison": 7, "direct_manager_approve": 4 }
+}
+```
+
+*(the numbers above are an illustrative shape, not a claimed result — a fresh deployment starts at zero and this fills in with genuine numbers as real incidents flow through it. On a manual, phone-call-based process, the same "breakdown reported → workshop and part confirmed" step commonly takes 30 minutes to a few hours, since it depends on the manager being reachable and free to make several calls — this endpoint is what makes an honest before/after comparison possible once the system has a real pilot's worth of incidents behind it, instead of guessing.)*
+
+---
+
 ## 🔄 Does it "auto-update" itself?
 
 **Yes — the system has a Self-Improving Knowledge Base, but it only learns from human-verified answers, never silently on its own.** Here's exactly how it works:
@@ -150,6 +170,12 @@ So it's "auto-update, but with a human in the loop" by design: an AI guess only 
 
 ## 📸 See it in action
 
+### 🎬 The full flow, at a glance
+
+![Demo flow: dashboard → driver → vendor → manager](docs/screenshots/demo-flow.gif)
+
+*(This is a captioned slideshow of real screens from the six sections below, not a screen recording — it's here to give a 20-second feel for the "no app needed" experience before you scroll through the actual conversations. For a true 30-second WhatsApp-to-WhatsApp screen recording, see the note in [Roadmap](#roadmap--current-limitations) below.)*
+
 ### 1. The Manager's Dashboard (web app)
 This is where an incident is first reported/injected into the system — either by an admin, or automatically when a driver reports a breakdown by voice note. It runs the full Agentic RAG pipeline and shows the diagnosis live.
 
@@ -218,17 +244,18 @@ The manager makes every real decision with a single tap — no typing, no app.
 
 ```
 fleet-swarm-project/
+├── .github/workflows/ci.yml       # CI pipeline (correctly placed so GitHub Actions actually runs it)
 ├── backend/
-│   ├── main.py                  # FastAPI app — all endpoints, WhatsApp webhook, agent orchestration
-│   ├── advanced/                 # Hybrid search, self-RAG, multi-agent graph, observability, vision
-│   ├── knowledge_base/           # Repair-manual documents (JSON) the RAG engine searches — add more any time
-│   ├── tests/                    # Backend test suite
+│   ├── main.py                    # FastAPI app — all endpoints, WhatsApp webhook, agent orchestration
+│   ├── advanced/                  # Hybrid search, self-RAG, multi-agent graph, observability, vision
+│   ├── knowledge_base/            # Repair-manual documents (JSON) the RAG engine searches — add more any time
+│   ├── tests/                     # Backend test suite (see Testing & reliability below)
 │   └── requirements.txt
 ├── frontend/
-│   ├── src/App.js                # The manager's web dashboard (incident injection + live status)
+│   ├── src/App.js                 # The manager's web dashboard (incident injection + live status)
 │   └── ...
-├── docs/screenshots/              # Screenshots used in this README
-└── workflows/ci.yml               # CI pipeline
+├── docs/screenshots/               # Screenshots + demo GIF used in this README
+└── workflows/ci.yml                # Old copy, kept for reference — see the Testing section below
 ```
 
 ---
@@ -268,6 +295,47 @@ Set `REACT_APP_API_URL` to point at your backend if it's not running locally.
 
 ---
 
+## 🧪 Testing & reliability
+
+A CI pipeline installs dependencies, runs the full test suite with coverage reporting (`pytest tests/ -v --cov=. --cov-report=term-missing`), and checks that `main.py` compiles cleanly, on every push and pull request.
+
+> ⚠️ **Note on this repo:** GitHub Actions only auto-runs workflow files that live under `.github/workflows/`. The original copy of this project had the file one level short, at `workflows/ci.yml`, so it was **not actually triggering on push/PR**. This has been fixed here — the same file now also lives at `.github/workflows/ci.yml` — so pushing this version to GitHub will make CI genuinely run automatically. (The old `workflows/ci.yml` copy is left in place too; it's harmless, but you can delete it once you've confirmed `.github/workflows/ci.yml` is running.)
+
+You can also run the same checks locally any time:
+```bash
+cd backend
+pip install -r requirements.txt -r requirements-dev.txt
+pytest tests/ -v --cov=. --cov-report=term-missing
+```
+
+What's actually covered today, honestly:
+
+| Test file | What it verifies |
+|---|---|
+| `test_hybrid_search.py` | The BM25/ranking logic itself — ties don't get a false index bias, distinct scores are ordered correctly, a genuine keyword match wins, and zero keyword overlap doesn't force a false-positive match. |
+| `test_knowledge_base.py` | The knowledge-base loader — reading multiple JSON manual files correctly, skipping duplicate IDs instead of silently overwriting, and falling back to the built-in seed data if the folder is empty. |
+| `test_persistence.py` | The SQLite-backed `PersistentDict` layer — basic get/set/delete, missing-key behavior, and that data genuinely survives across separate instances (i.e. would survive a real server restart). |
+
+**What isn't unit-tested yet:** the live WhatsApp webhook/orchestration flow itself (the part that actually talks to Meta, Gemini, and Google Maps) — this is deliberately harder to unit-test since it depends on three external, paid APIs, and is currently validated through manual/live testing instead (see the screenshots throughout this README, which are all real conversations, not mockups). Adding a mocked-API integration test suite for the webhook handler is the natural next investment here.
+
+---
+
+## 💵 Cost & scale — what running this actually costs
+
+This isn't a free system to run at scale — it calls three paid APIs per incident. Rough estimate per incident, based on current public pricing (September 2026; **always check the providers' own pricing pages, since these change often**):
+
+| API | Typical calls per incident | Approx. cost per incident |
+|---|---|---|
+| **Google Maps** ([pricing](https://developers.google.com/maps/billing-and-pricing/pricing)) | 1–2 Places Text Search calls (nearest workshop), 1 Geocoding call, 1–2 Directions calls, 1 Place Details call (hub phone) | ~$0.08–$0.12 (Places Text Search, at ~$32/1,000 requests, is the dominant cost here) |
+| **Google Gemini** ([pricing](https://ai.google.dev/gemini-api/docs/pricing)) | 1 diagnosis/CRAG-fallback call, 0–3 photo-diagnosis vision calls, 0–3 vendor price-extraction calls, 0–2 driver chat replies | ~$0.005–$0.02 (Gemini Flash/Flash-Lite are priced in cents per million tokens — this is the cheapest piece by far) |
+| **WhatsApp Business API (Meta)** | Roughly 15–25 messages total across driver, manager, and 2–3 vendors for one full incident | ~₹2–₹4 (~$0.02–$0.05) at the current ₹0.115/utility-or-service-message rate in India |
+
+**Rough total: ~$0.10–$0.20 (₹9–₹18) per fully-handled breakdown incident** — which is negligible next to the cost of even an hour of truck downtime. Google Maps' Places Text Search is the single biggest line item; caching nearby-hub results per region (instead of a fresh search every incident) is the most effective place to cut cost at higher volume.
+
+**Rate-limit headroom:** the app's own built-in limiter caps `/api/triage` and `/api/send-whatsapp-interactive` at 20 requests/minute per IP — that's protection against abuse of *this app*, separate from each provider's own quota (Gemini's free/paid tier request-per-minute limits, Google Maps' default queries-per-second cap, and WhatsApp's messaging-limit tiers, which scale up automatically as your number's quality rating and unique-recipients-per-24h history grow). For a production rollout across a larger fleet, check current headroom on each provider's own console before scaling up incident volume.
+
+---
+
 ## 🔌 All API endpoints
 
 | Endpoint | Purpose |
@@ -277,6 +345,7 @@ Set `REACT_APP_API_URL` to point at your backend if it's not running locally.
 | `GET /api/approval-status/{incident_id}` | Lets the dashboard poll for the manager's decision |
 | `GET` / `POST /api/whatsapp-webhook` | Meta's webhook verification, and where every incoming WhatsApp message (driver/manager/vendor) actually lands and gets handled |
 | `GET /api/health` | Simple health/uptime check |
+| `GET /api/metrics/summary` | Real, live-collected pilot metrics — average/median/fastest/slowest breakdown-to-dispatch time across every incident so far (see [Pilot metrics](#-pilot-metrics-real-numbers-not-marketing-claims) above) |
 | `GET /api/debug-api-key` | Checks whether `FLEET_API_KEY` is configured correctly, without exposing the actual key value |
 | `GET /api/debug-pending-quotes` | Shows the live, real-time state of every in-flight vendor price quote (who's replied, who's still waiting, what prices came in) |
 | `POST /api/debug-clear-pending-quotes` | Clears out stale/test vendor-quote data before a fresh test run |
@@ -284,11 +353,21 @@ Set `REACT_APP_API_URL` to point at your backend if it's not running locally.
 
 ---
 
-## 🚧 Good to know / current limitations
+## 🚧 Roadmap & current limitations
 
+- **No real screen-recorded demo yet.** The GIF above is a slideshow of real screenshots, not a live screen capture. The single highest-impact next step for anyone pitching this is a genuine 30-second phone screen recording: open WhatsApp as the driver, send a photo, show the manager's phone getting the alert and tapping Approve, show the vendor replying with a price — that sells the "zero app install" pitch better than any amount of text or static images.
 - The free hosting tier (Render) can "sleep" when idle — background timers (like the proactive follow-up) reset if the server restarts, though all incident data itself is safely persisted.
 - Forwarding a driver's actual photo to the manager (not just the AI's text description of it) is best-effort and depends on your WhatsApp Business setup — the text diagnosis always goes through regardless.
 - Vendor phone numbers are currently a small test list for demoing the price-comparison flow; swapping in real vendor numbers found via Google Places is a one-line config change (see the `TEST_VENDOR_NUMBERS` / `TEST_HUB_NUMBERS` notes in `backend/main.py`).
+- The webhook/orchestration flow itself (the part that talks to WhatsApp, Gemini and Maps live) isn't covered by the current automated tests — see [Testing](#testing--reliability) below for what is and isn't covered today.
+
+---
+
+## 📄 License
+
+**Proprietary — built for Beekay Infra & Logistics. All rights reserved.**
+
+This is a client-specific prototype, not an open-source release: the code, the knowledge base, and the deployed instances are not licensed for reuse or redistribution without permission. *(If you intend to open-source this instead — e.g. under MIT — swap this section for the license text and add a `LICENSE` file at the repo root.)*
 
 ---
 
