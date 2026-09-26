@@ -1,278 +1,242 @@
-# 🚛 Hyper-Local Fleet Swarm Intelligence
+# 🚛 Autonomous Fleet Intelligence Engine
 
-**A deterministic multi-agent "self-healing" logistics engine that automatically re-plans a truck's journey the moment it breaks down — with live Google Maps rerouting, procurement, legal compliance, and ERP sync all handled by a coordinated swarm of agents.**
+**A WhatsApp-first AI system that handles truck/bus breakdowns for a logistics company — end to end, without anyone needing to install an app.**
 
+🔗 **Live App:** [fleet-swarm-project.vercel.app](https://fleet-swarm-project.vercel.app/)
 
----
-
-## 📖 Table of Contents
-
-- [The Idea](#-the-idea)
-- [How It Works](#-how-it-works)
-- [The Agent Swarm Pipeline](#-the-agent-swarm-pipeline)
-- [Handling Every Case](#-handling-every-case)
-- [Tech Stack](#-tech-stack)
-- [Project Structure](#-project-structure)
-- [Getting Started](#-getting-started)
-- [Environment Variables](#-environment-variables)
-- [API Reference](#-api-reference)
-- [Example Request & Response](#-example-request--response)
-- [Roadmap](#-roadmap)
-- [Contributing](#-contributing)
-- [License](#-license)
+> Think of it as an AI operations manager that never sleeps: the moment a truck breaks down, it diagnoses the problem, finds the nearest repair shop, gets spare-part prices from vendors, negotiates the best deal, and keeps the driver, the fleet manager, and the vendor all talking to each other — over plain WhatsApp.
 
 ---
 
-## 💡 The Idea
+## 📖 What problem does this solve?
 
-Fleet operators (logistics, construction, freight) lose hours every time a **heavy vehicle breaks down mid-route**. Today that recovery is manual and slow:
+If you run a fleet of trucks or buses (this project is built around a real logistics company, **Beekay Infra & Logistics**, operating in Bihar, India), a breakdown on the highway today usually looks like this:
 
-1. A driver calls a dispatcher.
-2. The dispatcher manually checks traffic/road conditions.
-3. Someone manually finds a replacement part or vendor.
-4. Someone else drafts the compliance/insurance paperwork.
-5. Finally, someone updates the ERP/fleet ledger — often a day later.
+- Driver calls the manager → manager is busy or driving → call goes unanswered
+- Manager has no idea what's actually wrong with the vehicle
+- Someone has to manually search for a nearby mechanic/workshop
+- Someone has to call 2-3 spare-part vendors, ask prices, and negotiate
+- Nobody tracks whether the truck ever actually got fixed
+- If the same truck breaks down for the same reason every month, nobody notices the pattern
 
-**Fleet Swarm Intelligence** compresses this entire chain into a **single API call**, executed in milliseconds by a deterministic pipeline of specialized "agents." Instead of one monolithic function doing everything, the problem is broken into the same roles a real operations team would have — a **Supervisor**, a **Routing** specialist, a **Procurement** specialist, a **Legal/Compliance** specialist, and an **ERP** specialist — each contributing its own piece of the resolution, with every step timed and traced for auditability.
+This project replaces that entire chaotic phone-call process with **one WhatsApp conversation per person** — the driver chats with the bot, the manager chats with the bot, and the vendor chats with the bot. The AI in the middle does the diagnosis, the routing, the price comparison, and the follow-up.
 
-This is a **hyper-local** system: it ships with real corridor/hub knowledge for the **Patna, Bihar region** (NH-31, Gandhi Setu, Danapur, Bihta, Zero Mile) as a first-class fallback, while remaining fully generic for any location once a Google Maps API key is supplied.
+**No app to install. No training needed. If someone can use WhatsApp, they can use this system.**
 
 ---
 
-## ⚙️ How It Works
+## 🎯 Real, practical use cases
 
-At a high level:
+1. **A driver's truck breaks down on a highway at 2 AM.** He opens WhatsApp and either types the problem, sends a **voice note** in Hindi/Hinglish, or just **sends a photo** of the damaged part. The AI understands it, figures out the likely fault, and finds the nearest authorized service center automatically (using live Google Maps data).
+2. **The fleet manager gets an instant WhatsApp alert** with the vehicle, issue, nearest workshop, and AI-suggested spare part — with **Approve ✅ / Reject ❌** buttons. No app, no dashboard login needed, no typing.
+3. **The manager rejects a workshop** (too far / bad reviews) → the system **automatically reroutes to the next nearest one** and re-asks for approval — instead of the manager having to search again.
+4. **Before any part is bought, 2–3 nearby vendors are contacted automatically** on WhatsApp, asked for price & availability, and the AI even **negotiates one round** if a vendor's price is higher than a competitor's (without ever leaking the competitor's exact price). The manager just picks the best price with one tap.
+5. **The driver sends a photo of a damaged part any time during the repair.** If it's something small and safe (a loose wire, low coolant, a blown fuse), the AI gives the driver **step-by-step DIY instructions** right there in the chat — saving a mechanic visit entirely. If it's serious, it escalates to the manager immediately, flagged by severity (LOW/MODERATE/HIGH/CRITICAL).
+6. **If a driver says "accident" or "aag lag gayi" (fire) or similar,** the AI detects the emergency instantly and fires a separate 🆘 CRITICAL alert to the manager — it doesn't wait in the normal message queue.
+7. **If a driver goes quiet after a repair is dispatched,** the AI proactively checks in on its own ("kaisi chal rahi hai repair?") instead of the manager having to remember to follow up.
+8. **If the same vehicle keeps breaking down with a similar issue** (e.g. radiator problems 3 times in 90 days), the manager sees a 🔁 **Predictive Maintenance Alert** right on the very first approval message — before approving yet another one-off repair, they're nudged to book a full inspection instead.
+9. Every diagnosis the AI makes and a human later verifies is **permanently learned** — so the next time a similar issue comes up, the system answers with confidence from its own growing knowledge base instead of guessing again.
+
+---
+
+## 🧠 How it works (the actual flow)
 
 ```
-Driver/Dispatcher reports breakdown
-            │
-            ▼
-   React Frontend (incident form)
-            │  POST /api/triage
-            ▼
-     FastAPI Backend
-            │
-            ▼
- HyperLocalSwarmOrchestrator
-   runs 5 agents in sequence
-            │
-            ▼
- Structured TriageResponse
- (every agent's trace + final plan)
-            │
-            ▼
-   Frontend renders the full
-   multi-agent execution trace
+   DRIVER                    AI ENGINE (this project)                 MANAGER              VENDOR
+     │                                │                                  │                    │
+     │──(text / voice / photo)───────▶│                                  │                    │
+     │                                │  1. Understands the problem       │                    │
+     │                                │     (Gemini + Hybrid RAG search   │                    │
+     │                                │      over real repair manuals)    │                    │
+     │                                │  2. Finds nearest workshop        │                    │
+     │                                │     (Google Maps + Places)        │                    │
+     │                                │  3. Sends Approve/Reject alert ──▶│                    │
+     │                                │                                  │──Reject──▶ auto-reroute to next hub
+     │                                │                                  │──Approve──┐          │
+     │                                │  4. Asks 2-3 vendors for price ─────────────┼─────────▶│
+     │                                │                                  │          │◀─price────│
+     │                                │  5. Negotiates if needed ───────────────────┼─────────▶│
+     │                                │  6. Shows manager best price ◀──────────────┘          │
+     │                                │                                  │──picks vendor──▶     │
+     │◀──"Accept Repair" button───────│                                  │                    │
+     │──taps Accept──────────────────▶│  Chat is now LIVE with AI agent  │                    │
+     │──(sends photo mid-repair)─────▶│  7. Vision AI diagnoses photo    │                    │
+     │◀──DIY steps OR "help coming"───│     (self-fix if safe, escalate  │                    │
+     │                                │      to manager if serious) ────▶│                    │
+     │                                │  8. If driver goes silent,       │                    │
+     │◀──proactive check-in───────────│     follows up automatically     │                    │
 ```
 
-The backend is intentionally **deterministic** (not an LLM-driven agent loop) — every "agent" is a well-defined function that always produces a structured, predictable output. This makes the system fast (milliseconds, not seconds), auditable, and safe to run in production without worrying about hallucinated actions.
+Everything above happens through **one Meta WhatsApp Business number** — the "AI Engine" box is a FastAPI backend that receives every WhatsApp message as a webhook, decides who sent it (driver / manager / vendor) and what they mean, and replies instantly.
 
 ---
 
-## 🤖 The Agent Swarm Pipeline
+## ✨ Full feature list
 
-Every incident is processed by five agents, run in order, each one logged as a trace with its own execution time:
+### Core AI / Agentic pipeline
+- **Multi-Agent Swarm architecture** — Triage & Vision Agent → Hybrid RAG Diagnostics Agent → Routing & Logistics Agent → Manager-Approval/ERP Agent, each one logged and traced independently.
+- **Hybrid Search RAG** — combines BM25 keyword search with vector similarity + cross-encoder reranking over a real, expandable knowledge base of vehicle repair manuals (drop in more `.json` manual files any time, no code change needed).
+- **Corrective RAG (CRAG) with a hallucination grader** — before recommending a spare part, the system checks that the part is actually grounded in the retrieved manual text. If it isn't confident, it falls back to a live Gemini AI diagnosis, clearly labeled "AI-generated, verify before dispatch" — never presented with false certainty.
+- **Self-Improving Knowledge Base** — once a manager approves an AI-generated diagnosis, it's permanently saved, so the identical issue next time gets an instant, high-confidence, manual-grounded answer.
+- **Multi-Modal Vision** — real Gemini Vision analysis of photos (both at the initial report stage and any time later in the chat).
 
-| # | Agent | Responsibility |
-|---|-------|-----------------|
-| 1 | **Supervisor Agent** | Triages the incident, calculates a risk score based on severity, and assigns the rest of the swarm to the job. |
-| 2 | **Routing Agent** | Computes the real alternate route using the **Google Maps Directions API** (if configured), or falls back to a curated **Bihar corridor database** with pre-mapped bypass routes and estimated delay savings. |
-| 3 | **Procurement Agent** | Identifies the nearest operational hub/depot and confirms replacement stock is locked and ready for dispatch. |
-| 4 | **Legal Agent** | Auto-generates an emergency transit/towing permit reference and invokes the relevant SLA/force-majeure clause. |
-| 5 | **ERP Sync Agent** | Commits the resolution to the fleet ledger with a transaction ID, trip distance, and updated fleet status. |
+### WhatsApp-native experience (for drivers, managers, and vendors — zero app installs)
+- **Text, voice note, and photo support** — a driver can type, speak (Hindi/Hinglish/regional), or just send a picture.
+- **Interactive buttons** for every decision point — Approve/Reject, Accept Repair, Vendor Yes/No, Pick Vendor — nobody has to type free text for the important steps.
+- **Automatic hub re-routing** — a manager's "Reject" instantly triggers the next-nearest workshop's approval card.
+- **Spare-Part Price Comparison & Negotiation** — multiple vendors are contacted in parallel, prices are compared automatically, and the AI runs one negotiation round with a higher-priced vendor without revealing competitors' numbers.
+- **In-chat Photo Diagnosis + Self-Service Repair Guidance** — minor issues get DIY fix instructions instead of an automatic mechanic dispatch, saving time and cost.
+- **Language auto-matching** — the AI always replies in the same script/language the sender used (Hindi, Hinglish, or English).
+- **Urgency detection** — every message is silently scored NORMAL / URGENT / CRITICAL, with life-threatening situations (accident, fire, injury) triggering an instant standalone alert to the manager.
+- **Proactive follow-up** — if a driver goes silent after a repair is dispatched, the AI checks in on its own rather than waiting to be asked.
+- **Per-vehicle predictive maintenance** — repeating issues on the same vehicle are automatically flagged to the manager before they approve yet another quick fix.
+- **Live location sharing** — a driver's shared WhatsApp location is instantly forwarded to the manager with a clickable map link.
 
-The API response includes **every agent's payload, status, and timestamp**, so the frontend can render a full execution trace — not just a final answer.
-
----
-
-## 🧩 Handling Every Case
-
-The engine is built to degrade gracefully instead of failing:
-
-- **✅ Google Maps API key configured** → Routing Agent uses live Directions API data (real distance, duration, start/end coordinates, addresses).
-- **⚠️ No API key / API call fails / no destination provided** → Routing Agent automatically falls back to the built-in **Bihar corridor knowledge base** (`LOCATION_MAP`), matching against known highways/landmarks (`NH-31`, `Gandhi Setu`, `Danapur`, `Bihta`, `Zero Mile`).
-- **🌍 Unknown/unlisted location** → A generic peripheral-bypass route and regional hub are synthesized on the fly from the cargo type and location, so the pipeline **never dead-ends**.
-- **🚨 Severity = `CRITICAL`** → Risk score is set high (`0.94`) to reflect urgency in the Supervisor's decision payload.
-- **🟡 Severity = `MODERATE`** → Risk score defaults to `0.70`.
-- **📦 Any cargo type** → Procurement and ERP payloads dynamically reference the submitted cargo type, so the response is never generic boilerplate.
-- **🧾 Optional destination field** → If left blank, it defaults to `"Hajipur Industrial Area Workshop"`, preventing `422` validation errors from the API.
+### Reliability & engineering
+- **SQLite-backed persistent state** — every incident, approval, and quote survives a server restart/redeploy (not just kept in memory).
+- **Rate limiting & API-key protection** on the endpoints the frontend calls, so the paid Gemini/Maps/WhatsApp APIs behind them can't be abused.
+- **Full observability tracing** — every agent step is logged with a trace ID, latency, and payload, in a LangSmith/Arize-style format.
 
 ---
 
-## 🛠 Tech Stack
+## 📸 See it in action
 
-**Backend**
-- [FastAPI](https://fastapi.tiangolo.com/) — API framework
-- [Pydantic](https://docs.pydantic.dev/) — request/response schema validation
-- [Uvicorn](https://www.uvicorn.org/) — ASGI server
-- [Requests](https://requests.readthedocs.io/) — Google Maps Directions API calls
+### 1. The Manager's Dashboard (web app)
+This is where an incident is first reported/injected into the system — either by an admin, or automatically when a driver reports a breakdown by voice note. It runs the full Agentic RAG pipeline and shows the diagnosis live.
 
-**Frontend**
-- [React 19](https://react.dev/)
-- [Tailwind CSS 3](https://tailwindcss.com/)
-- [Axios](https://axios-http.com/)
-- [Lucide React](https://lucide.dev/) — icons
-- Create React App (`react-scripts`)
+| Reporting a breakdown & getting a manual-grounded diagnosis | A trickier issue falling back to live AI diagnosis |
+|---|---|
+| ![Dashboard - triage form](docs/screenshots/01-dashboard-triage-form.png) | ![Dashboard - AI fallback diagnosis](docs/screenshots/02-dashboard-ai-diagnosis-fallback.png) |
+| Clutch overheating → matched instantly to the Tata Prima manual at 90% confidence, with the exact spare part. | Steering oil leak → no manual matched confidently, so Gemini generates a real diagnosis on the spot, honestly labeled "AI-Generated" instead of faking manual-level certainty. |
+
+### 2. The Driver's WhatsApp
+The driver never sees a dashboard — everything happens in one chat thread with the fleet's WhatsApp number.
+
+| Repair & parts confirmed | Tapping "Accept Repair" activates the AI agent |
+|---|---|
+| ![Driver - repair confirmed](docs/screenshots/03-driver-repair-confirmed.png) | ![Driver - accept repair button](docs/screenshots/04-driver-accept-repair-button.png) |
+
+| Driver sends a photo mid-repair — AI diagnoses it instantly | Full AI diagnosis + natural back-and-forth chat |
+|---|---|
+| ![Driver - photo diagnosis](docs/screenshots/05-driver-photo-diagnosis-start.png) | ![Driver - photo diagnosis detail](docs/screenshots/06-driver-photo-diagnosis-detail.png) |
+
+| Driver asks the AI to escalate to the manager | AI keeps the driver updated on dispatch status |
+|---|---|
+| ![Driver - chat follow-up](docs/screenshots/07-driver-chat-followup.png) | ![Driver - dispatch update](docs/screenshots/08-driver-chat-dispatch-update.png) |
+
+*(In this real conversation, the driver's water pump had failed completely — the AI correctly identified it as unrepairable, told the driver not to start the vehicle, and kept him informed while a replacement was arranged.)*
+
+### 3. The Vendor's WhatsApp
+Spare-part vendors near the breakdown location are contacted automatically — no manual phone calls by the manager.
+
+| Vendor gets an availability enquiry with Yes/No buttons | AI negotiates the price down in real time |
+|---|---|
+| ![Vendor - price enquiry](docs/screenshots/09-vendor-price-enquiry.png) | ![Vendor - negotiation](docs/screenshots/10-vendor-negotiation-1.png) |
+
+| A second vendor is contacted the same way, in parallel |
+|---|
+| ![Vendor - second negotiation](docs/screenshots/11-vendor-negotiation-2.png) |
+
+### 4. The Manager's WhatsApp
+The manager makes every real decision with a single tap — no typing, no app.
+
+| AI shows a side-by-side price comparison; manager picks the best one | Driver's mid-repair photo is escalated with a CRITICAL severity flag |
+|---|---|
+| ![Manager - price comparison](docs/screenshots/12-manager-price-comparison.png) | ![Manager - driver photo alert](docs/screenshots/13-manager-driver-photo-alert.png) |
+
+| The exact photo and AI diagnosis, with an emergency-level alert |
+|---|
+| ![Manager - critical alert](docs/screenshots/14-manager-critical-alert.png) |
 
 ---
 
-## 📁 Project Structure
+## 🏗️ Tech stack
+
+| Layer | Technology |
+|---|---|
+| Backend API | Python, FastAPI |
+| Frontend dashboard | React + Tailwind CSS (deployed on Vercel) |
+| AI / LLM | Google Gemini (text + vision) |
+| Search / RAG | BM25 + vector hybrid search, cross-encoder reranking |
+| Maps & routing | Google Maps Places, Geocoding & Directions APIs |
+| Messaging | WhatsApp Business Cloud API (Meta) |
+| Persistence | SQLite (survives restarts/redeploys) |
+| Hosting | Backend on Render, Frontend on Vercel |
+
+---
+
+## 📁 Project structure
 
 ```
 fleet-swarm-project/
 ├── backend/
-│   ├── main.py              # FastAPI app + HyperLocalSwarmOrchestrator (the swarm logic)
-│   └── requirements.txt     # fastapi, uvicorn, pydantic, requests
-│
-└── frontend/
-    ├── public/
-    ├── src/
-    │   ├── App.js            # Incident form + live trace visualization
-    │   ├── App.css
-    │   └── index.js
-    ├── package.json
-    └── tailwind.config.js
+│   ├── main.py                  # FastAPI app — all endpoints, WhatsApp webhook, agent orchestration
+│   ├── advanced/                 # Hybrid search, self-RAG, multi-agent graph, observability, vision
+│   ├── knowledge_base/           # Repair-manual documents (JSON) the RAG engine searches — add more any time
+│   ├── tests/                    # Backend test suite
+│   └── requirements.txt
+├── frontend/
+│   ├── src/App.js                # The manager's web dashboard (incident injection + live status)
+│   └── ...
+├── docs/screenshots/              # Screenshots used in this README
+└── workflows/ci.yml               # CI pipeline
 ```
 
 ---
 
-## 🚀 Getting Started
+## ⚙️ Running it yourself
 
-### Prerequisites
-- Python 3.9+
-- Node.js 18+ and npm
-- (Optional) A [Google Maps Directions API key](https://developers.google.com/maps/documentation/directions/get-api-key)
-
-### 1. Clone the repo
-
-```bash
-git clone https://github.com/projects2829/fleet-swarm-project.git
-cd fleet-swarm-project
-```
-
-### 2. Run the backend
+### Backend
 
 ```bash
 cd backend
-python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
-# optional, enables live routing:
-export GOOGLE_MAPS_API_KEY=your_api_key_here
-
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload
 ```
 
-The API will be live at `http://localhost:8000`, with interactive docs at `http://localhost:8000/docs`.
+Environment variables it reads (set these before running for real, otherwise the relevant feature simply falls back to a safe simulated/skipped mode instead of crashing):
 
-### 3. Run the frontend
+| Variable | What it's for |
+|---|---|
+| `WHATSAPP_TOKEN` | Meta WhatsApp Business Cloud API access token |
+| `PHONE_NUMBER_ID` | Your WhatsApp Business phone number ID |
+| `GEMINI_API_KEY` | Powers all the AI understanding, diagnosis, vision, and language matching |
+| `GOOGLE_MAPS_API_KEY` | Nearby workshop search, geocoding, and route calculation |
+| `FLEET_API_KEY` | Protects `/api/triage` and `/api/send-whatsapp-interactive` from public abuse |
+| `FOLLOWUP_CHECK_DELAY_SECONDS` | How long to wait before proactively checking in on a silent driver (default: 2 hours) |
+| `PREDICTIVE_PATTERN_WINDOW_DAYS` | How far back to look for repeat issues on the same vehicle (default: 90 days) |
+| `PREDICTIVE_PATTERN_MIN_REPEATS` | How many repeats before flagging a predictive-maintenance warning (default: 2) |
+
+### Frontend
 
 ```bash
 cd frontend
 npm install
-
-# point the frontend at your local backend:
-echo "REACT_APP_API_URL=http://localhost:8000" > .env
-
 npm start
 ```
 
-The app opens at `http://localhost:3000`.
+Set `REACT_APP_API_URL` to point at your backend if it's not running locally.
 
 ---
 
-## 🔑 Environment Variables
+## 🔌 Key API endpoints
 
-| Variable | Where | Description |
-|---|---|---|
-| `GOOGLE_MAPS_API_KEY` | Backend | Enables live routing via Google Maps Directions API. If omitted, the system automatically uses the built-in Bihar corridor fallback. |
-| `REACT_APP_API_URL` | Frontend | Base URL of the backend API. Defaults to the deployed Render URL if not set. |
-
----
-
-## 📡 API Reference
-
-### `POST /api/triage`
-
-Triggers the full agent swarm for a breakdown incident.
-
-**Request body**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `vehicle_id` | string | ✅ | Fleet unit identifier |
-| `location` | string | ✅ | Breakdown location (origin) |
-| `destination` | string | ❌ | Target workshop/hub (defaults to Hajipur Workshop) |
-| `issue_type` | string | ✅ | Description of the mechanical/operational issue |
-| `severity` | string | ✅ | `CRITICAL` or `MODERATE` |
-| `cargo_type` | string | ✅ | Type of cargo being carried |
-
-**Response**: `TriageResponse` — includes `incident_id`, total `execution_time_ms`, number of `deterministic_steps_executed`, the full list of agent `traces`, and a `final_resolution` summary.
-
-### `GET /api/health`
-
-Simple health-check endpoint, returns engine status.
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/triage` | Runs the full Agentic RAG pipeline for a new incident |
+| `POST /api/send-whatsapp-interactive` | Sends the Approve/Reject card to the manager on WhatsApp |
+| `GET /api/approval-status/{incident_id}` | Lets the dashboard poll for the manager's decision |
+| `POST /api/whatsapp-webhook` | Where every incoming WhatsApp message (from driver/manager/vendor) actually lands and gets handled |
+| `GET /api/health` | Simple health check |
 
 ---
 
-## 🧪 Example Request & Response
+## 🚧 Good to know / current limitations
 
-**Request**
-
-```json
-POST /api/triage
-{
-  "vehicle_id": "TRUCK-BR-01-9922",
-  "location": "Zero Mile, Patna",
-  "destination": "Hajipur Industrial Area Workshop",
-  "issue_type": "Engine Overheat & Transmission Breakdown",
-  "severity": "CRITICAL",
-  "cargo_type": "Heavy Construction Steel Rods"
-}
-```
-
-**Response (shape)**
-
-```json
-{
-  "incident_id": "INC-A1B2C3D4",
-  "status": "RESOLVED_VIA_DYNAMIC_MAPS_SWARM",
-  "execution_time_ms": 812.45,
-  "deterministic_steps_executed": 5,
-  "traces": [
-    { "step_name": "Supervisor_Triage", "agent_role": "Supervisor Agent", "status": "SUCCESS", "...": "..." },
-    { "step_name": "Routing_Recalculation", "agent_role": "Routing Agent", "status": "SUCCESS", "...": "..." },
-    { "step_name": "Procurement_Vendor_Negotiation", "agent_role": "Procurement Agent", "status": "SUCCESS", "...": "..." },
-    { "step_name": "Legal_Compliance_Generation", "agent_role": "Legal Agent", "status": "SUCCESS", "...": "..." },
-    { "step_name": "ERP_State_Commit", "agent_role": "ERP Sync Agent", "status": "SUCCESS", "...": "..." }
-  ],
-  "final_resolution": {
-    "vehicle_id": "TRUCK-BR-01-9922",
-    "origin": "Zero Mile, Patna",
-    "destination": "Hajipur Industrial Area Workshop",
-    "mitigation_summary": "Swarm rerouted unit TRUCK-BR-01-9922 ...",
-    "erp_ref": "TXN-ERP-4F9C2A"
-  }
-}
-```
+- The free hosting tier (Render) can "sleep" when idle — background timers (like the proactive follow-up) reset if the server restarts, though all incident data itself is safely persisted.
+- Forwarding a driver's actual photo to the manager (not just the AI's text description of it) is best-effort and depends on your WhatsApp Business setup — the text diagnosis always goes through regardless.
+- Vendor phone numbers are currently a small test list for demoing the price-comparison flow; swapping in real vendor numbers found via Google Places is a one-line config change (see the `TEST_VENDOR_NUMBERS` / `TEST_HUB_NUMBERS` notes in `backend/main.py`).
 
 ---
 
-## 🗺 Roadmap
-
-- [ ] Persist incidents to a real database instead of in-memory response
-- [ ] Auth + multi-tenant fleet accounts
-- [ ] Expand the corridor knowledge base beyond Bihar to other regions
-- [ ] Real ERP/vendor API integrations (currently simulated)
-- [ ] WebSocket-based live status updates instead of a single request/response
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome! Feel free to open an issue or submit a PR for bug fixes, new corridor data, or additional agents in the swarm.
-
-## 📄 License
-
-This project is licensed under the [MIT License](LICENSE).
+Built for **Beekay Infra & Logistics** as a real, working prototype of what an AI-run fleet operations desk can look like — one that talks to everyone on the road in the one app they already have open: WhatsApp.
