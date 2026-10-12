@@ -365,10 +365,4 @@ This isn't a free system to run at scale — it calls three paid APIs per incide
 
 ## 📄 License
 
-**Proprietary — built for Beekay Infra & Logistics. All rights reserved.**
-
-This is a client-specific prototype, not an open-source release: the code, the knowledge base, and the deployed instances are not licensed for reuse or redistribution without permission. *(If you intend to open-source this instead — e.g. under MIT — swap this section for the license text and add a `LICENSE` file at the repo root.)*
-
----
-
-Built for **Beekay Infra & Logistics** as a real, working prototype of what an AI-run fleet operations desk can look like — one that talks to everyone on the road in the one app they already have open: WhatsApp.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
