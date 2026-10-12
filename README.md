@@ -282,6 +282,12 @@ Environment variables it reads (set these before running for real, otherwise the
 | `FOLLOWUP_CHECK_DELAY_SECONDS` | How long to wait before proactively checking in on a silent driver (default: 2 hours) |
 | `PREDICTIVE_PATTERN_WINDOW_DAYS` | How far back to look for repeat issues on the same vehicle (default: 90 days) |
 | `PREDICTIVE_PATTERN_MIN_REPEATS` | How many repeats before flagging a predictive-maintenance warning (default: 2) |
+| `COHERE_API_KEY` | Optional Cohere API key for alternative reranking |
+| `GEMINI_VISION_MODEL` | Optional Gemini model override for vision (default: `gemini-2.0-flash`) |
+| `GEMINI_GRADER_MODEL` | Optional Gemini model override for RAG grading (default: `gemini-2.0-flash`) |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional OpenTelemetry collector endpoint |
+| `LANGCHAIN_TRACING_V2` | Set to `true` to enable LangSmith tracing (default: disabled) |
+| `LANGCHAIN_PROJECT` | LangSmith project name (default: `default`) |
 
 ### Frontend
 
