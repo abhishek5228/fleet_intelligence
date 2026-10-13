@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+.venv/
+venv/
+
+# Local state and secrets
+backend/.env
+*.db
+fleet_state.db
+
+# Node
+frontend/node_modules/
+frontend/build/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
