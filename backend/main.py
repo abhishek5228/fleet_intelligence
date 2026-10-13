@@ -13,6 +13,8 @@ from fastapi import FastAPI, HTTPException, Request, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from security import sig_ok, parse_origins
+
 # --- REAL advanced modules (replace the simulated versions below) ---
 from advanced.hybrid_search import HybridSearchEngine
 from advanced.self_rag import grade_hallucination
@@ -68,15 +70,24 @@ class PersistentDict(collections.abc.MutableMapping):
 
 app = FastAPI(title="Autonomous Enterprise Fleet Agentic AI & RAG Engine", version="5.0.0-GoogleLevel")
 
+# CORS: set ALLOWED_ORIGINS (comma-separated, e.g. your Vercel URL) in production.
+# Unset keeps the old open behaviour so existing deploys don't break. Credentials
+# (cookies) are not used — the dashboard authenticates with the X-API-Key header —
+# so they stay off, which is also what makes a wildcard origin safe.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
+    allow_origins=parse_origins(os.getenv("ALLOWED_ORIGINS")),
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
-MANAGER_WHATSAPP_NUMBER = "+916209313108"
+# The fleet manager's WhatsApp number (with country code, e.g. +91XXXXXXXXXX).
+# Read from the environment so a real phone number is not committed to a public repo.
+MANAGER_WHATSAPP_NUMBER = os.getenv("MANAGER_WHATSAPP_NUMBER", "")
+if not MANAGER_WHATSAPP_NUMBER:
+    print("⚠️ [config] MANAGER_WHATSAPP_NUMBER is not set — manager alerts have no recipient. "
+          "Set it on Render (e.g. +91XXXXXXXXXX).")
 
 # TEMPORARY TESTING OVERRIDE — Spare-Part Price Comparison feature.
 # Fill in real numbers here to test the quote/negotiation flow RIGHT NOW
@@ -187,7 +198,18 @@ def rate_limit(request: Request):
     _rate_limit_tracker[client_ip] = timestamps
     return True
 WHATSAPP_PHONE_ID = os.getenv("PHONE_NUMBER_ID", "1340284595815318")
-VERIFY_TOKEN = "fleet_secret_token_2026"
+# Webhook handshake token. Set WHATSAPP_VERIFY_TOKEN and use the same value in Meta's
+# console. The fallback is the old hardcoded value (it is in git history, so treat it
+# as public and rotate it) so an existing Meta configuration keeps working.
+VERIFY_TOKEN = os.getenv("WHATSAPP_VERIFY_TOKEN", "fleet_secret_token_2026")
+
+# Meta App Secret, used to verify the X-Hub-Signature-256 header on every webhook POST.
+# If unset, signatures are NOT checked (warning below) so an unconfigured deploy keeps
+# working — set it before going to production.
+APP_SECRET = os.getenv("WHATSAPP_APP_SECRET")
+if not APP_SECRET:
+    print("⚠️ [security] WHATSAPP_APP_SECRET is not set — webhook POSTs are NOT signature-verified. "
+          "Set it (Meta App Dashboard → Settings → Basic → App Secret).")
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
@@ -442,7 +464,7 @@ def _transcribe_voice_note(audio_bytes: bytes, mime_type: str = "audio/ogg") -> 
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
+            "gemini-flash-latest:generateContent"
         )
         prompt = (
             "This is a voice note from a truck/bus driver in India, likely in Hindi, "
@@ -461,7 +483,7 @@ def _transcribe_voice_note(audio_bytes: bytes, mime_type: str = "audio/ogg") -> 
                 ]
             }]
         }
-        resp = requests.post(url, json=body, timeout=20)
+        resp = requests.post(url, json=body, headers={"x-goog-api-key": GEMINI_API_KEY}, timeout=20)
         resp.raise_for_status()
         data = resp.json()
         raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -501,7 +523,7 @@ def _diagnose_incident_photo(image_bytes: bytes, mime_type: str, incident_ctx: d
         img_b64 = base64.b64encode(image_bytes).decode("utf-8")
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
+            "gemini-flash-latest:generateContent"
         )
         prompt = (
             "You are a heavy commercial vehicle (truck/bus) diagnostic assistant for an Indian fleet "
@@ -535,7 +557,7 @@ def _diagnose_incident_photo(image_bytes: bytes, mime_type: str, incident_ctx: d
             }],
             "generationConfig": {"temperature": 0.2, "response_mime_type": "application/json"}
         }
-        resp = requests.post(url, json=body, timeout=20)
+        resp = requests.post(url, json=body, headers={"x-goog-api-key": GEMINI_API_KEY}, timeout=20)
         resp.raise_for_status()
         data = resp.json()
         raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -817,7 +839,7 @@ def _extract_price_from_reply(vendor_text: str) -> Optional[Dict[str, Any]]:
     try:
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
+            "gemini-flash-latest:generateContent"
         )
         prompt = (
             "A spare-parts vendor in India replied to a price enquiry (possibly across "
@@ -830,7 +852,7 @@ def _extract_price_from_reply(vendor_text: str) -> Optional[Dict[str, Any]]:
             "yet, e.g. just \"yes\"). available=null if genuinely unclear."
         )
         body = {"contents": [{"parts": [{"text": prompt}]}]}
-        resp = requests.post(url, json=body, timeout=10)
+        resp = requests.post(url, json=body, headers={"x-goog-api-key": GEMINI_API_KEY}, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -1039,7 +1061,7 @@ def _generate_ai_diagnosis(issue_type: str) -> Optional[Dict[str, str]]:
     try:
         url = (
             "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
+            "gemini-flash-latest:generateContent"
         )
         prompt = (
             "You are a heavy commercial vehicle (truck/bus) diagnostic assistant "
@@ -1051,7 +1073,7 @@ def _generate_ai_diagnosis(issue_type: str) -> Optional[Dict[str, str]]:
             '"recommended_part": "<short generic part or kit name>"}'
         )
         body = {"contents": [{"parts": [{"text": prompt}]}]}
-        resp = requests.post(url, json=body, timeout=10)
+        resp = requests.post(url, json=body, headers={"x-goog-api-key": GEMINI_API_KEY}, timeout=10)
         resp.raise_for_status()
         data = resp.json()
         raw_text = data["candidates"][0]["content"]["parts"][0]["text"]
@@ -1378,12 +1400,12 @@ def _keyword_fallback(text_body: str) -> dict:
             "decision": "APPROVED_LOCAL_MECHANIC_REROUTED",
             "reply_text": "✅ Understood — the vehicle has been rerouted to the local mechanic."
         }
-    elif "ok" in t or "haan" in t or "kardo" in t or "approve" in t:
+    elif re.search(r"\b(ok|okay|haan|kardo|approve[d]?)\b", t):  # whole words: "broken" must not match "ok"
         result = {
             "decision": "APPROVED_AND_DISPATCHED",
             "reply_text": "✅ Repair approved, dispatch sequence has been initiated."
         }
-    elif "cancel" in t or "reject" in t or "mat" in t:
+    elif "cancel" in t or "reject" in t or re.search(r"\bmat\b", t):  # "mat" = "don't" in Hindi, not "material"
         result = {
             "decision": "REJECTED_REROUTING",
             "reply_text": "❌ Request rejected, vehicle rerouting initiated."
@@ -1893,10 +1915,16 @@ async def verify_whatsapp_webhook(request: Request):
 
 @app.post("/api/whatsapp-webhook")
 async def whatsapp_webhook(request: Request):
+    # Verify Meta's signature BEFORE the try block: the broad `except Exception`
+    # below would otherwise swallow the 403. Needs the raw bytes, not parsed JSON.
+    body = await request.body()
+    if APP_SECRET and not sig_ok(APP_SECRET, body, request.headers.get("x-hub-signature-256")):
+        raise HTTPException(status_code=403, detail="Invalid webhook signature.")
     try:
-        data = await request.json()
-        print("DEBUG WEBHOOK RECEIVED:", json.dumps(data, indent=2))
-        
+        data = json.loads(body)
+        # Log size only — the payload holds phone numbers and message text (PII).
+        print(f"webhook: received payload ({len(body)} bytes)")
+
         entry = data.get("entry", [{}])[0]
         changes = entry.get("changes", [{}])[0]
         value = changes.get("value", {})
@@ -2414,7 +2442,6 @@ async def debug_api_key(x_api_key: Optional[str] = Header(None)):
     (typos, extra spaces/quotes) WITHOUT exposing either key's actual value."""
     return {
         "fleet_api_key_set_on_server": bool(FLEET_API_KEY),
-        "fleet_api_key_length_on_server": len(FLEET_API_KEY) if FLEET_API_KEY else 0,
         "received_x_api_key_header": x_api_key is not None,
         "received_key_length": len(x_api_key) if x_api_key else 0,
         "keys_match": bool(FLEET_API_KEY) and x_api_key == FLEET_API_KEY
@@ -2422,7 +2449,7 @@ async def debug_api_key(x_api_key: Optional[str] = Header(None)):
 
 
 @app.get("/api/debug-pending-quotes")
-async def debug_pending_quotes():
+async def debug_pending_quotes(_auth=Depends(require_api_key)):
     """Vendor quote flow ka LIVE state dikhata hai — kaunsa vendor 'waiting'
     hai, kaunsa 'awaiting_cost', price kya aaya, manager_notified ho chuka
     ya nahi. Ise hit karke exactly pata chal jaata hai flow kahaan atka hai,
@@ -2444,18 +2471,17 @@ async def debug_clear_pending_quotes(_auth=Depends(require_api_key)):
     return {"status": "success", "cleared_incident_ids": cleared}
 
 @app.get("/api/test-gemini")
-async def test_gemini():
+async def test_gemini(_auth=Depends(require_api_key), _rl=Depends(rate_limit)):
     """Browser me seedha khol ke Gemini key/model test karne ke liye —
     koi local terminal/curl ki zaroorat nahi. Sirf debugging ke liye hai."""
     if not GEMINI_API_KEY:
         return {"status": "error", "reason": "GEMINI_API_KEY environment variable is not set on Render."}
     try:
-        url = (
-            "https://generativelanguage.googleapis.com/v1beta/models/"
-            f"gemini-flash-latest:generateContent?key={GEMINI_API_KEY}"
-        )
+        # Key goes in a header, not the URL, so it can never end up in an
+        # exception message / response body returned to the caller below.
+        url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent"
         body = {"contents": [{"parts": [{"text": "Say hello in one word"}]}]}
-        resp = requests.post(url, json=body, timeout=10)
+        resp = requests.post(url, json=body, headers={"x-goog-api-key": GEMINI_API_KEY}, timeout=10)
         if resp.status_code != 200:
             return {
                 "status": "error",
@@ -2466,4 +2492,4 @@ async def test_gemini():
         reply_text = data["candidates"][0]["content"]["parts"][0]["text"]
         return {"status": "success", "gemini_replied": reply_text}
     except Exception as e:
-        return {"status": "exception", "details": str(e)}
+        return {"status": "exception", "details": type(e).__name__}
