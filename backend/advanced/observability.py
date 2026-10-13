@@ -36,7 +36,7 @@ import os
 import time
 import functools
 import json
-from typing import Callable, Any
+from typing import Callable
 
 _OTEL_ENABLED = bool(os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"))
 _LANGSMITH_ENABLED = os.getenv("LANGCHAIN_TRACING_V2", "").lower() == "true"
