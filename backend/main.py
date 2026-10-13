@@ -82,7 +82,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-MANAGER_WHATSAPP_NUMBER = "+916209313108"
+# The fleet manager's WhatsApp number (with country code, e.g. +91XXXXXXXXXX).
+# Read from the environment so a real phone number is not committed to a public repo.
+MANAGER_WHATSAPP_NUMBER = os.getenv("MANAGER_WHATSAPP_NUMBER", "")
+if not MANAGER_WHATSAPP_NUMBER:
+    print("⚠️ [config] MANAGER_WHATSAPP_NUMBER is not set — manager alerts have no recipient. "
+          "Set it on Render (e.g. +91XXXXXXXXXX).")
 
 # TEMPORARY TESTING OVERRIDE — Spare-Part Price Comparison feature.
 # Fill in real numbers here to test the quote/negotiation flow RIGHT NOW
@@ -1395,12 +1400,12 @@ def _keyword_fallback(text_body: str) -> dict:
             "decision": "APPROVED_LOCAL_MECHANIC_REROUTED",
             "reply_text": "✅ Understood — the vehicle has been rerouted to the local mechanic."
         }
-    elif "ok" in t or "haan" in t or "kardo" in t or "approve" in t:
+    elif re.search(r"\b(ok|okay|haan|kardo|approve[d]?)\b", t):  # whole words: "broken" must not match "ok"
         result = {
             "decision": "APPROVED_AND_DISPATCHED",
             "reply_text": "✅ Repair approved, dispatch sequence has been initiated."
         }
-    elif "cancel" in t or "reject" in t or "mat" in t:
+    elif "cancel" in t or "reject" in t or re.search(r"\bmat\b", t):  # "mat" = "don't" in Hindi, not "material"
         result = {
             "decision": "REJECTED_REROUTING",
             "reply_text": "❌ Request rejected, vehicle rerouting initiated."
