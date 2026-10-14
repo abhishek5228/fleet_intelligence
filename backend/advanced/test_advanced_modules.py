@@ -85,7 +85,6 @@ def test_observability():
 
 def test_multimodal():
     print("\n=== Testing Feature 5: Multi-Modal ===")
-    from advanced.multimodal import identify_damaged_part
 
     if not os.getenv("GEMINI_API_KEY"):
         print("  GEMINI_API_KEY not set -> skipping live vision call (expected in local test).")

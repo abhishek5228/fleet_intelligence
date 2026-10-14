@@ -33,7 +33,7 @@ Dependencies (see requirements-advanced.txt):
 
 import os
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
 import numpy as np
 from rank_bm25 import BM25Okapi

@@ -177,11 +177,11 @@ So it's "auto-update, but with a human in the loop" by design: an AI guess only 
 
 ### 🔒 Reliability, safety & engineering
 - **SQLite-backed persistent state** for every incident, approval, quote, vehicle history, and driver-activity timestamp — none of it lives only in memory, so a server restart/redeploy doesn't wipe anything out.
-- **API-key protection** on the endpoints the dashboard calls (`/api/triage`, `/api/send-whatsapp-interactive`), so outsiders can't rack up Gemini/Maps/WhatsApp API costs.
+- **Fail-closed API-key protection** on the endpoints the dashboard calls (`/api/triage`, `/api/send-whatsapp-interactive`), so outsiders can't rack up Gemini/Maps/WhatsApp API costs.
 - **Rate limiting** (20 requests/minute per IP) on those same endpoints as a second layer of abuse protection.
 - **CORS configured** so the frontend (Vercel) and backend (Render) can talk to each other even though they're hosted separately.
 - **Graceful fallbacks everywhere** — if `GEMINI_API_KEY`, `GOOGLE_MAPS_API_KEY`, or `WHATSAPP_TOKEN` isn't set, the relevant feature simply simulates/skips instead of crashing the whole app.
-- **Built-in debug endpoints** for troubleshooting without touching server logs — check API key setup, inspect any in-flight vendor quote's live status, clear stale test data, or test the Gemini connection directly (see the endpoint table below).
+- **Opt-in debug endpoints** (`ENABLE_DEBUG_ENDPOINTS=true`) — inspect any in-flight vendor quote's live status, clear stale test data, or test the Gemini connection directly (see the endpoint table below).
 
 </details>
 
@@ -263,10 +263,21 @@ The manager makes every real decision with a single tap — no typing, no app.
 
 ```
 fleet_intelligence/
-├── .github/workflows/ci.yml       # CI: runs the backend tests on every push and PR
+├── .github/workflows/ci.yml       # CI: lint + the backend test suite on every push and PR
 ├── backend/
-│   ├── main.py                    # FastAPI app — all endpoints, WhatsApp webhook, agent orchestration
-│   ├── security.py                # Webhook signature check + CORS parsing (stdlib only)
+│   ├── main.py                    # Tiny entry point (`uvicorn main:app`) — the app lives in fleet/
+│   ├── security.py                # Signature check, constant-time compare, rate limiter (stdlib only)
+│   ├── fleet/                     # The application, one concern per module
+│   │   ├── api.py                 #   FastAPI routes only — no business rules
+│   │   ├── auth.py                #   Fail-closed API-key / webhook-signature / handshake checks
+│   │   ├── config.py              #   Every environment variable, parsed once
+│   │   ├── state.py, store.py     #   SQLite-backed state + the lock that guards it
+│   │   ├── webhook/               #   Inbound WhatsApp: router, roles (who may do what), buttons, chat, media
+│   │   ├── orchestrator.py        #   The triage pipeline behind /api/triage
+│   │   ├── quotes.py, followup.py #   Vendor price comparison; proactive driver check-ins
+│   │   ├── whatsapp.py, gemini.py #   Outbound clients (Meta Cloud API, Google Gemini)
+│   │   ├── knowledge.py           #   Knowledge base, retrieval engine, corrective-RAG validator
+│   │   └── netsafe.py             #   SSRF-safe fetching of caller-supplied image URLs
 │   ├── advanced/                  # Hybrid search, self-RAG, multi-agent graph, observability, vision
 │   ├── knowledge_base/            # Repair-manual documents (JSON) the RAG engine searches — add more any time
 │   ├── tests/                     # Backend test suite (see Testing & reliability below)
@@ -289,19 +300,25 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
-Environment variables it reads (set these before running for real, otherwise the relevant feature simply falls back to a safe simulated/skipped mode instead of crashing):
+Copy `backend/.env.example` and fill it in. **Secrets are required, not optional:** if a security setting is missing the app refuses the request it protects (HTTP 503) rather than silently running open, and it prints exactly what is missing at startup. For local development only, `ALLOW_INSECURE_DEV=true` turns that off.
 
 | Variable | What it's for |
 |---|---|
-| `WHATSAPP_TOKEN` | Meta WhatsApp Business Cloud API access token |
+| `FLEET_API_KEY` | **Required.** Protects `/api/triage` and `/api/send-whatsapp-interactive` (503 if unset) |
+| `WHATSAPP_APP_SECRET` | **Required.** Meta App Secret — every webhook POST must carry a valid `X-Hub-Signature-256` (503 if unset, 403 if wrong) |
+| `WHATSAPP_VERIFY_TOKEN` | **Required.** Token for Meta's webhook handshake (use the same value in Meta's console) |
+| `MANAGER_WHATSAPP_NUMBER` | **Required.** The manager's number with country code, e.g. `+91XXXXXXXXXX`. Only this number can approve, reject or pick a vendor |
+| `WHATSAPP_TOKEN` | Meta WhatsApp Business Cloud API access token (unset = sends are simulated) |
 | `PHONE_NUMBER_ID` | Your WhatsApp Business phone number ID |
-| `GEMINI_API_KEY` | Powers all the AI understanding, diagnosis, vision, and language matching |
-| `GOOGLE_MAPS_API_KEY` | Nearby workshop search, geocoding, and route calculation |
-| `FLEET_API_KEY` | Protects `/api/triage`, `/api/send-whatsapp-interactive` and all debug endpoints from public abuse |
-| `WHATSAPP_APP_SECRET` | Meta App Secret. When set, every webhook POST must carry a valid `X-Hub-Signature-256` or it gets a 403 |
-| `WHATSAPP_VERIFY_TOKEN` | Token for Meta's webhook handshake (use the same value in Meta's console) |
-| `MANAGER_WHATSAPP_NUMBER` | The fleet manager's WhatsApp number with country code, e.g. `+91XXXXXXXXXX`. Unset means manager alerts have no recipient |
+| `DRIVER_WHATSAPP_MAPPING` | JSON `{"VEHICLE_ID": "+91..."}` — which driver drives which vehicle. Env var or `FLEET_CONFIG_FILE` |
+| `TEST_VENDOR_NUMBERS`, `TEST_HUB_NUMBERS` | Testing-only JSON lists (see `.env.example`); leave empty to use real nearby hubs |
+| `FLEET_CONFIG_FILE` | Path to a JSON file holding the three settings above, so phone numbers never enter git |
+| `GEMINI_API_KEY` | Powers all the AI understanding, diagnosis, vision, and language matching (unset = keyword fallback) |
+| `GOOGLE_MAPS_API_KEY` | Nearby workshop search, geocoding, and route calculation (unset = built-in hub list) |
 | `ALLOWED_ORIGINS` | Comma-separated CORS origins, e.g. your Vercel URL (default: any origin) |
+| `FLEET_DB_PATH` | Where the SQLite file lives (default `backend/fleet_state.db`) — put it on a persistent disk |
+| `ENABLE_DEBUG_ENDPOINTS` | `true` exposes the three diagnostic endpoints (default off; they also need the API key) |
+| `ALLOW_INSECURE_DEV` | **Local development only** — lets requests through when the secrets above are unset |
 | `FOLLOWUP_CHECK_DELAY_SECONDS` | How long to wait before proactively checking in on a silent driver (default: 2 hours) |
 | `PREDICTIVE_PATTERN_WINDOW_DAYS` | How far back to look for repeat issues on the same vehicle (default: 90 days) |
 | `PREDICTIVE_PATTERN_MIN_REPEATS` | How many repeats before flagging a predictive-maintenance warning (default: 2) |
@@ -312,6 +329,8 @@ Environment variables it reads (set these before running for real, otherwise the
 | `LANGCHAIN_TRACING_V2` | Set to `true` to enable LangSmith tracing (default: disabled) |
 | `LANGCHAIN_PROJECT` | LangSmith project name (default: `default`) |
 
+The app runs as a **single instance** on SQLite: a process-wide lock keeps concurrent webhook messages and the quote/follow-up timers from overwriting each other's updates. Run one worker (`uvicorn main:app`, no `--workers N`).
+
 ### Frontend
 
 ```bash
@@ -320,25 +339,42 @@ npm install
 npm start
 ```
 
-Set `REACT_APP_API_URL` to point at your backend if it's not running locally.
+Set `REACT_APP_API_URL` to point at your backend if it's not running locally, and `REACT_APP_FLEET_API_KEY` to the same value as the backend's `FLEET_API_KEY`. (Anything in a browser bundle is visible to visitors, so this key keeps casual abuse out — it is not a user login.)
 
 ---
 
 ## 🧪 Testing & reliability
 
-A CI pipeline installs dependencies, runs the full test suite with coverage reporting (`pytest tests/ -v --cov=. --cov-report=term-missing`), and checks that `main.py` compiles cleanly, on every push and pull request.
+A CI pipeline lints the code (`ruff`, undefined names / unused imports / syntax errors), checks every module compiles, and runs the full test suite with coverage, on every push and pull request.
 
-You can also run the same checks locally any time:
+Run the same checks locally:
 ```bash
 cd backend
-pip install -r requirements.txt -r requirements-dev.txt
-pytest tests/ -v --cov=. --cov-report=term-missing
+pip install -r requirements.txt -r requirements-dev.txt ruff
+ruff check --select F,E9 .
+pytest tests/ -v --cov=fleet --cov=security --cov-report=term-missing
 ```
 
-What's actually covered today, honestly:
+The tests never touch the network or a real database: each test gets a fresh SQLite file, a recorder stands in for the WhatsApp API, and timers are fake (the test fires them).
 
 | Test file | What it verifies |
 |---|---|
+| `test_webhook_flow.py` | The whole WhatsApp flow end to end through the real handlers: approve (and learning), reject → reroute → exhausted, the vendor flow (yes → price → negotiation → pick → driver accepts), driver chat/urgent escalation, photos, locations, voice notes, **who may press which button**, strangers being refused, retried deliveries ignored, per-sender rate limit, malformed payloads. |
+| `test_triage_pipeline.py` | `/api/triage`'s pipeline with a fake retrieval engine: the incident is registered for approval, repeat issues are flagged, a vendor quote round opens, internal image URLs are never fetched, oversized fields rejected. |
+| `test_security.py` | Signature verification, constant-time compare, the rate limiter, and the **fail-closed** rules (missing secret → 503, not open). HTTP-level checks run when FastAPI + httpx are installed (always in CI). |
+| `test_netsafe.py` | SSRF protection: non-http schemes, loopback/private/link-local/metadata addresses, redirects into internal hosts, redirect loops, oversized bodies. |
+| `test_config.py` | Settings parsing: blank values, bad numbers, JSON settings, config file, startup warnings. |
+| `test_gemini_and_whatsapp.py` | The Gemini and WhatsApp clients against fake HTTP: parsing, fallbacks, retries, failure signalling, the corrective-RAG grades, learned-document dedupe. |
+| `test_followup.py` | Follow-up timers: arming, quiet-driver check-ins, chaining, stopping, error containment. |
+| `test_persistence.py` | The SQLite `PersistentDict` — persistence across instances, name validation, thread safety, and that the state lock prevents lost updates. |
+| `test_knowledge_base.py` | The knowledge-base loader (malformed entries, duplicates, seed fallback) and that the shipped files are valid. |
+| `test_logic.py` | Keyword extraction, predictive-maintenance alerts, learned documents, the keyword fallback used when the AI is down. |
+| `test_hybrid_search.py` | The BM25/ranking logic itself. |
+| `test_hygiene.py` | Guards: no phone numbers or secrets in source, `main.py` stays thin, no module grows into a monolith, every env var is documented. |
+
+**What isn't tested:** anything that needs the real Meta, Gemini or Google Maps services (they are faked), and the React dashboard.
+
+---|---|
 | `test_hybrid_search.py` | The BM25/ranking logic itself — ties don't get a false index bias, distinct scores are ordered correctly, a genuine keyword match wins, and zero keyword overlap doesn't force a false-positive match. |
 | `test_knowledge_base.py` | The knowledge-base loader — reading multiple JSON manual files correctly, skipping duplicate IDs instead of silently overwriting, and falling back to the built-in seed data if the folder is empty. |
 | `test_logic.py` | Decision logic behind the webhook: keyword extraction, per-vehicle predictive-maintenance alerts (repeat threshold, time window, vehicle isolation), learned-knowledge documents, the keyword fallback used when the AI is down (including a regression test for substring false matches like "broken" ≈ "ok"), simulated-send mode, the API-key check and the per-IP rate limiter. |
@@ -379,22 +415,25 @@ This isn't a free system to run at scale — it calls three paid APIs per incide
 | `GET` / `POST /api/whatsapp-webhook` | Meta's webhook verification, and where every incoming WhatsApp message (driver/manager/vendor) actually lands and gets handled |
 | `GET /api/health` | Simple health/uptime check |
 | `GET /api/metrics/summary` | Real, live-collected pilot metrics — average/median/fastest/slowest breakdown-to-dispatch time across every incident so far (see [Pilot metrics](#-pilot-metrics-real-numbers-not-marketing-claims) above) |
-| `GET /api/debug-api-key` | Checks whether `FLEET_API_KEY` is configured and whether the header you sent matches, without exposing any key value |
-| `GET /api/debug-pending-quotes` 🔑 | Shows the live, real-time state of every in-flight vendor price quote (who's replied, who's still waiting, what prices came in) |
-| `POST /api/debug-clear-pending-quotes` 🔑 | Clears out stale/test vendor-quote data before a fresh test run |
-| `GET /api/test-gemini` 🔑 | Quick one-click check that the `GEMINI_API_KEY` and Gemini connection are working |
+| `GET /api/debug-pending-quotes` 🔑🛠 | Shows the live, real-time state of every in-flight vendor price quote (who's replied, who's still waiting, what prices came in) |
+| `POST /api/debug-clear-pending-quotes` 🔑🛠 | Clears out stale/test vendor-quote data before a fresh test run |
+| `GET /api/test-gemini` 🔑🛠 | Quick one-click check that the `GEMINI_API_KEY` and Gemini connection are working |
 
-🔑 = requires the `X-API-Key` header when `FLEET_API_KEY` is set. The webhook is instead authenticated by Meta's HMAC signature (`WHATSAPP_APP_SECRET`).
+🔑 = requires the `X-API-Key` header (HTTP 503 if `FLEET_API_KEY` is not configured). 🛠 = only exists when `ENABLE_DEBUG_ENDPOINTS=true`; otherwise 404. The webhook is instead authenticated by Meta's HMAC signature (`WHATSAPP_APP_SECRET`).
 
 ---
 
 ## 🔒 Security notes
 
-- **Webhook authenticity:** set `WHATSAPP_APP_SECRET` so forged POSTs can't inject fake driver/vendor messages. Comparison is constant-time.
-- **Secrets stay out of URLs and logs:** the Gemini key is sent in the `x-goog-api-key` header, never the query string, so network errors can't print it. Webhook logs record payload size only, because payloads contain phone numbers and message text.
-- **Fail-open defaults, by design:** if `FLEET_API_KEY` or `WHATSAPP_APP_SECRET` is unset, the server starts with a loud warning instead of locking you out. Set both for any real deployment.
-- **Rotate** the old default verify token (it exists in git history) by setting `WHATSAPP_VERIFY_TOKEN` and updating Meta's console.
-- **Phone numbers:** the manager's number now comes from `MANAGER_WHATSAPP_NUMBER`. The demo driver map (`DRIVER_WHATSAPP_MAPPING`) and test vendor/hub lists in `backend/main.py` still contain real numbers; replace them with placeholders or env-driven config before sharing the repo widely. Old values also remain in git history.
+- **Fail closed:** a missing `FLEET_API_KEY` or `WHATSAPP_APP_SECRET` means the protected endpoints answer 503; they never silently run open. `ALLOW_INSECURE_DEV=true` is the one explicit, loudly-logged way to switch that off for local work.
+- **Webhook authenticity:** every POST must carry a valid `X-Hub-Signature-256` (constant-time check over the raw body).
+- **Authorization, not just authentication:** a signed message proves Meta delivered it, not that the sender may act. Approve / Reject / Pick-vendor work only from `MANAGER_WHATSAPP_NUMBER`; "Accept Repair" only from that incident's driver; a vendor's Yes/No only from that vendor. Strangers can't chat with the AI agent or read incident details, and the old "use the most recent incident" fallback is gone.
+- **Abuse limits:** per-IP limit on the API, per-sender limit on the webhook, Meta retries de-duplicated by message id, input length caps.
+- **SSRF protection:** the `image_url` on `/api/triage` is fetched only if it is a public http(s) address (every redirect hop re-checked, size capped), so it can't be used to reach internal services or cloud metadata.
+- **Secrets stay out of URLs and logs:** the Gemini key is sent in a header, and logs record payload size only — never phone numbers or message text.
+- **Debug endpoints are off by default** (`ENABLE_DEBUG_ENDPOINTS`), and the old `/api/debug-api-key` endpoint was removed.
+- **Phone numbers and keys are configuration, not code:** drivers, test vendors and hubs come from env vars or `FLEET_CONFIG_FILE`.
+- **Your action needed:** the previous default API key and webhook verify token, and the phone numbers that used to be in `main.py`, still exist in git history. Rotate the keys (`FLEET_API_KEY`, `WHATSAPP_VERIFY_TOKEN` + Meta's console). Scrubbing history needs a force-push, which is your call.
 
 ---
 
@@ -403,8 +442,8 @@ This isn't a free system to run at scale — it calls three paid APIs per incide
 - **No real screen-recorded demo yet.** The GIF above is a slideshow of real screenshots, not a live screen capture. The single highest-impact next step for anyone pitching this is a genuine 30-second phone screen recording: open WhatsApp as the driver, send a photo, show the manager's phone getting the alert and tapping Approve, show the vendor replying with a price — that sells the "zero app install" pitch better than any amount of text or static images.
 - The free hosting tier (Render) can "sleep" when idle — background timers (like the proactive follow-up) reset if the server restarts, though all incident data itself is safely persisted.
 - Forwarding a driver's actual photo to the manager (not just the AI's text description of it) is best-effort and depends on your WhatsApp Business setup — the text diagnosis always goes through regardless.
-- Vendor phone numbers are currently a small test list for demoing the price-comparison flow; swapping in real vendor numbers found via Google Places is a one-line config change (see the `TEST_VENDOR_NUMBERS` / `TEST_HUB_NUMBERS` notes in `backend/main.py`).
-- The live message-handling branches behind the webhook aren't covered by automated tests yet — see [Testing](#-testing--reliability) for exactly what is.
+- Vendor phone numbers are a test list for demoing the price-comparison flow; set `TEST_VENDOR_NUMBERS` / `TEST_HUB_NUMBERS` to `[]` (the default) to use real nearby hubs found via Google Places.
+- Single instance only: state is SQLite and one in-process lock serialises webhook handling, so scaling out needs a shared database and distributed locking first.
 
 ---
 

@@ -3,7 +3,6 @@ Tests for hybrid_search.py — specifically the tie-breaking fix in _rank_of,
 which was the root cause of the "always returns DOC-01" bug.
 """
 import numpy as np
-import pytest
 from advanced.hybrid_search import HybridSearchEngine
 
 

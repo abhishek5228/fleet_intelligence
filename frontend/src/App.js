@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import './App.css';
 
+// The dashboard talks to the backend with a shared key. Anything in a React bundle is visible
+// to every visitor, so this key only keeps casual abuse out - it is NOT a user login. Set it at
+// build time (REACT_APP_FLEET_API_KEY) instead of committing it, and rotate it if it leaks.
+const API_KEY = process.env.REACT_APP_FLEET_API_KEY || '';
+const authHeaders = { 'Content-Type': 'application/json', 'X-API-Key': API_KEY };
+
+// FastAPI sends `detail` as a string for most errors but as a list of objects for 422 validation errors.
+const describeError = (detail, fallback) => {
+  if (!detail) return fallback;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) return detail.map(d => d.msg || JSON.stringify(d)).join('; ');
+  return fallback;
+};
+
 function App() {
   const [formData, setFormData] = useState({
     vehicle_id: '',
@@ -32,7 +46,7 @@ function App() {
     try {
       const res = await fetch(`${API_URL}/api/triage`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': 'abhi123secretkey456' },
+        headers: authHeaders,
         body: JSON.stringify(formData)
       });
 
@@ -41,7 +55,7 @@ function App() {
         setResponseResult(data);
         setApprovalStatus(data.approval_status || 'PENDING_MANAGER_APPROVAL');
       } else {
-        setError(data.detail || 'Validation error from backend.');
+        setError(describeError(data.detail, 'Validation error from backend.'));
       }
     } catch (err) {
       setError('Failed to connect to backend server.');
@@ -97,7 +111,7 @@ function App() {
     try {
       const res = await fetch(`${API_URL}/api/send-whatsapp-interactive`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-API-Key': 'abhi123secretkey456' },
+        headers: authHeaders,
         body: JSON.stringify({
           incident_id: responseResult.incident_id,
           phone: responseResult.assigned_whatsapp_number,
@@ -111,7 +125,9 @@ function App() {
         })
       });
       const data = await res.json();
-      if (data.status === 'meta_api_error') {
+      if (!res.ok) {
+        alert(describeError(data.detail, 'The backend refused the request.'));
+      } else if (data.status === 'meta_api_error') {
         alert(`Meta API Error: ${JSON.stringify(data.error_details)}`);
       } else {
         alert(`Agentic RAG WhatsApp alert successfully dispatched to manager!`);

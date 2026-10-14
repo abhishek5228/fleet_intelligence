@@ -10,6 +10,11 @@ venv/
 backend/.env
 *.db
 fleet_state.db
+*.db-wal
+*.db-shm
+backend/fleet_config.json
+.ruff_cache/
+.mypy_cache/
 
 # Node
 frontend/node_modules/
